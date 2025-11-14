@@ -52,17 +52,28 @@ for (let index = 0; index < forecastLength; index += 1) {
   forecast.push({ time, temperatureC: temperature })
 }
 
-const processed = {
-  location: 'Taipei, Taiwan',
-  coordinates: { latitude, longitude },
-  timezone: typeof timezone === 'string' && timezone.length ? timezone : 'UTC',
-  hourlyUnit: typeof hourlyUnits === 'object' && hourlyUnits !== null && typeof hourlyUnits.temperature_2m === 'string'
+const timezoneValue = typeof timezone === 'string' && timezone.length ? timezone : 'UTC'
+const temperatureUnit =
+  typeof hourlyUnits === 'object' &&
+  hourlyUnits !== null &&
+  typeof hourlyUnits.temperature_2m === 'string'
     ? hourlyUnits.temperature_2m
-    : '°C',
-  forecast,
-  fetchedAt: new Date().toISOString(),
-  source: 'https://api.open-meteo.com/v1/forecast?latitude=25.04&longitude=121.56&hourly=temperature_2m'
-}
+    : '°C'
+const fetchedAt = new Date().toISOString()
+const source =
+  'https://api.open-meteo.com/v1/forecast?latitude=25.04&longitude=121.56&hourly=temperature_2m'
+
+const processed = forecast.map((entry) => ({
+  location: 'Taipei, Taiwan',
+  latitude,
+  longitude,
+  timezone: timezoneValue,
+  temperatureUnit,
+  fetchedAt,
+  source,
+  time: entry.time,
+  temperatureC: entry.temperatureC
+}))
 
 // Step 3. Write a new JSON file with our filtered data
 const newFilename = 'taipei-weather-postprocessed.json' // name of a new file to be saved

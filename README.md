@@ -11,6 +11,7 @@ gitGraph
   checkout work
   commit id: "Improve Binance workflow documentation and validation"
   commit id: "Switch workflow to Taipei weather forecast"
+  commit id: "Flatten hourly forecast rows"
 ```
 
 ### State Diagram
@@ -20,7 +21,7 @@ stateDiagram-v2
   Idle --> ScheduledRun: Cron trigger or manual dispatch
   ScheduledRun --> FetchingWeather: Flat downloads Taipei forecast
   FetchingWeather --> PostProcessing: Save taipei-weather.json
-  PostProcessing --> CommitUpdate: Valid hourly samples
+  PostProcessing --> CommitUpdate: Flattened hourly rows
   PostProcessing --> Failure: Missing data / schema mismatch
   Failure --> Idle
   CommitUpdate --> Idle
@@ -41,7 +42,7 @@ sequenceDiagram
   Workflow->>OpenMeteo: GET /v1/forecast?latitude=25.04&longitude=121.56&hourly=temperature_2m
   OpenMeteo-->>Workflow: Hourly temperature payload
   Workflow->>Script: Invoke postprocess.js with taipei-weather.json
-  Script-->>Workflow: Validated & summarized forecast
+  Script-->>Workflow: Validated & flattened forecast rows
   Workflow->>Repo: Commit taipei-weather.json & taipei-weather-postprocessed.json
   Repo-->>User: Updated Taipei forecast available
 ```
@@ -64,7 +65,7 @@ graph TD
   A -->|Store raw payload| D
   A -->|Invoke| B
   D -->|Provide hourly data| B
-  B -->|Write processed record| E
+  B -->|Write flattened rows| E
   A -->|Commit artifacts| D
   A -->|Commit artifacts| E
 ```
@@ -112,7 +113,7 @@ This demo is part of a larger Flat Data project created by [GitHub OCTO](https:/
 
 ## What this demo does
 
-This repository uses a [Flat Data Action](https://github.com/githubocto/flat) to fetch the hourly 2 m air temperature forecast for Taipei from [Open-Meteo](https://api.open-meteo.com/v1/forecast?latitude=25.04&longitude=121.56&hourly=temperature_2m). The raw payload is committed to `taipei-weather.json`, and a summarized 24-hour slice is written to `taipei-weather-postprocessed.json`. Both files are updated every 5 minutes when the forecast changes.
+This repository uses a [Flat Data Action](https://github.com/githubocto/flat) to fetch the hourly 2 m air temperature forecast for Taipei from [Open-Meteo](https://api.open-meteo.com/v1/forecast?latitude=25.04&longitude=121.56&hourly=temperature_2m). The raw payload is committed to `taipei-weather.json`, and a flattened 24-hour slice of hourly data (with latitude, longitude, timezone, and metadata duplicated per row) is written to `taipei-weather-postprocessed.json`. Both files are updated every 5 minutes when the forecast changes.
 
 > **Note:** Open-Meteo is a free, unauthenticated API. You can adjust the coordinates or parameters in `.github/workflows/flat.yml` to target a different city or weather variable.
 
@@ -230,7 +231,7 @@ But what if you want to process or change the data in some way before it gets ad
 
     ![](https://raw.githubusercontent.com/githubocto/flat-demo-bitcoin-price/readme-assets/assets/7.postprocess.png)
 
-2. **Add code to the postprocess script:** The following code written in Javascript and using Deno (more on this in a bit) validates the Open-Meteo response and keeps the first 24 hourly temperatures in a compact summary file.
+2. **Add code to the postprocess script:** The following code written in Javascript and using Deno (more on this in a bit) validates the Open-Meteo response and flattens the first 24 hourly temperatures into tabular rows.
 
 	```javascript
         // This can be a typescript file as well
@@ -287,21 +288,30 @@ But what if you want to process or change the data in some way before it gets ad
           forecast.push({ time, temperatureC: temperature })
         }
 
-        const processed = {
-          location: 'Taipei, Taiwan',
-          coordinates: { latitude, longitude },
-          timezone: typeof timezone === 'string' && timezone.length ? timezone : 'UTC',
-          hourlyUnit: typeof hourlyUnits === 'object' && hourlyUnits !== null && typeof hourlyUnits.temperature_2m === 'string'
+        const timezoneValue = typeof timezone === 'string' && timezone.length ? timezone : 'UTC'
+        const temperatureUnit =
+          typeof hourlyUnits === 'object' && hourlyUnits !== null && typeof hourlyUnits.temperature_2m === 'string'
             ? hourlyUnits.temperature_2m
-            : '°C',
-          forecast,
-          fetchedAt: new Date().toISOString(),
-          source: 'https://api.open-meteo.com/v1/forecast?latitude=25.04&longitude=121.56&hourly=temperature_2m'
-        }
+            : '°C'
+        const fetchedAt = new Date().toISOString()
+        const source =
+          'https://api.open-meteo.com/v1/forecast?latitude=25.04&longitude=121.56&hourly=temperature_2m'
+
+        const processed = forecast.map((entry) => ({
+          location: 'Taipei, Taiwan',
+          latitude,
+          longitude,
+          timezone: timezoneValue,
+          temperatureUnit,
+          fetchedAt,
+          source,
+          time: entry.time,
+          temperatureC: entry.temperatureC
+        }))
 
         // Step 3. Write a new JSON file with our filtered data
-        const newFilename = `taipei-weather-postprocessed.json` // name of a new file to be saved
-        await writeJSON(newFilename, processed) // create a new JSON file with the processed forecast
+        const newFilename = 'taipei-weather-postprocessed.json' // name of a new file to be saved
+        await writeJSON(newFilename, processed) // create a new JSON file with the processed forecast rows
         console.log('Wrote a post process file')
         ```
 
@@ -315,7 +325,7 @@ But what if you want to process or change the data in some way before it gets ad
         ```
 	
 
-4. **Check the new postprocessed-taipei-weather.json file:** In the repository you should now see a new file containing the first 24 hourly temperature readings for Taipei.
+4. **Check the new postprocessed-taipei-weather.json file:** In the repository you should now see a new file containing 24 flattened hourly rows for Taipei, each row duplicating the location metadata for easier tabular viewing.
 
     ![](https://raw.githubusercontent.com/githubocto/flat-demo-bitcoin-price/readme-assets/assets/8.postprocessfile.png)
 
