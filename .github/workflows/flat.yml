@@ -21,6 +21,6 @@ jobs:
       - name: Fetch data
         uses: githubocto/flat@v3
         with:
-          http_url: https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT
-          downloaded_filename: btc-price.json
+          http_url: https://api.open-meteo.com/v1/forecast?latitude=25.04&longitude=121.56&hourly=temperature_2m
+          downloaded_filename: taipei-weather.json
           postprocess: postprocess.js
