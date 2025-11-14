@@ -4,7 +4,7 @@ This demo is part of a larger Flat Data project created by [GitHub OCTO](https:/
 
 ## What this demo does
 
-This repository uses a [Flat Data Action](https://github.com/githubocto/flat) to fetch the current price of Bitcoin [from this link](https://api.coindesk.com/v2/bpi/currentprice.json) and downloads that data to `btc-price.json` and a filtered version of the data to `btc-price-postprocessed.json`. Both files are updated every 5 minutes if there are changes. 
+This repository uses a [Flat Data Action](https://github.com/githubocto/flat) to fetch the current price of Bitcoin [from this link](https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT) and downloads that data to `btc-price.json` and a processed version of the data to `btc-price-postprocessed.json`. Both files are updated every 5 minutes if there are changes.
 
 <img src="https://raw.githubusercontent.com/githubocto/flat-demo-bitcoin-price/readme-assets/assets/diagram2.png" alt="diagram" width="400"/>
 
@@ -54,11 +54,11 @@ This is a super simple example of how to use Flat Data using the Github GUI.
 	        with:
               deno-version: v1.x
 	      # The third step is a Flat Action step. We fetch the data in the http_url and save it as downloaded_filename
-	      - name: Fetch data 
-	        uses: githubocto/flat@v3
-	        with:
-	          http_url: https://api.coindesk.com/v2/bpi/currentprice.json # The data to fetch every 5 minutes
-	          downloaded_filename: btc-price.json # The http_url gets saved and renamed in our repository as btc-price.json
+              - name: Fetch data
+                uses: githubocto/flat@v3
+                with:
+                  http_url: https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT # The data to fetch every 5 minutes
+                  downloaded_filename: btc-price.json # The http_url gets saved and renamed in our repository as btc-price.json
 	```
 	
 	Let’s discuss what’s happening in a few of these lines of code:
@@ -81,9 +81,9 @@ This is a super simple example of how to use Flat Data using the Github GUI.
 	c. Finally, we have a section for the Flat Action itself. The action takes at minimum two parameters. The `http_url` parameter specifies what endpoint or data we want the Action to download. The `downloaded_filename` specifies what to rename the downloaded data once we commit it to our repo.
 	
 	```yaml
-	with:
-	    http_url: https://api.coindesk.com/v2/bpi/currentprice.json
-	    downloaded_filename: btc-price.json
+        with:
+            http_url: https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT
+            downloaded_filename: btc-price.json
 	```
 
 
@@ -125,37 +125,47 @@ But what if you want to process or change the data in some way before it gets ad
 	```javascript
 	// This can be a typescript file as well
 	
-	// Helper library written for useful postprocessing tasks with Flat Data
-	// Has helper functions for manipulating csv, json, excel, zip, and image files
-	import { readJSON, writeJSON } from 'https://deno.land/x/flat@0.0.11/mod.ts' 
-	
-	// Step 1: Read the downloaded_filename JSON
-	const filename = Deno.args[0] // Same name as downloaded_filename `const filename = 'btc-price.json';`
-	const json = await readJSON(filename)
-	console.log(json)
-	
-	// Step 2: Filter specific data we want to keep and write to a new JSON file
-	const currencyRates = Object.values(json.bpi); // convert property values into an array
-	const filteredCurrencyRates = currencyRates.map(rate => ({ 
-	    currency: rate.description,
-	    bitcoinRate: rate.rate
-	}));
-	
-	// Step 3. Write a new JSON file with our filtered data
-	const newFilename = `btc-price-postprocessed.json` // name of a new file to be saved
-	await writeJSON(newFilename, filteredCurrencyRates) // create a new JSON file with just the Bitcoin price
-	console.log("Wrote a post process file")
+        // Helper library written for useful postprocessing tasks with Flat Data
+        // Has helper functions for manipulating csv, json, excel, zip, and image files
+        import { readJSON, writeJSON } from 'https://deno.land/x/flat@0.0.14/mod.ts'
+
+        // Step 1: Read the downloaded_filename JSON
+        const filename = Deno.args[0] // Same name as downloaded_filename `const filename = 'btc-price.json';`
+        const json = await readJSON(filename)
+        console.log(json)
+
+        if (typeof json !== 'object' || json === null) {
+          throw new Error('Unexpected Binance ticker response')
+        }
+
+        const { symbol, price } = json
+        const parsedPrice = Number(price)
+
+        if (!Number.isFinite(parsedPrice)) {
+          throw new Error('Unexpected Binance ticker response: price is not numeric')
+        }
+
+        const processed = {
+          symbol,
+          priceUSD: parsedPrice,
+          fetchedAt: new Date().toISOString()
+        }
+
+        // Step 3. Write a new JSON file with our filtered data
+        const newFilename = `btc-price-postprocessed.json` // name of a new file to be saved
+        await writeJSON(newFilename, processed) // create a new JSON file with the processed Bitcoin price
+        console.log("Wrote a post process file")
 	```
 
 3. **Add a postprocess parameter to flat.yaml:** Go back to the flat.yaml file and click on the pencil icon to edit it. Add the `postprocess` line below downloaded_filename. This tells the Flat Action that we want to pass the downloaded file through a script that will process it and do additional work.
 
 	```yaml
 	- name: Fetch data 
-	        uses: githubocto/flat@v3
-	        with:
-	          http_url: https://api.coindesk.com/v2/bpi/currentprice.json # The data to fetch every 5 minutes
-	          downloaded_filename: btc-price.json # The http_url gets saved and renamed in our repository as btc-price.json
-	          postprocess: postprocess.js # A postprocessing javascript or typescript file
+                uses: githubocto/flat@v3
+                with:
+                  http_url: https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT # The data to fetch every 5 minutes
+                  downloaded_filename: btc-price.json # The http_url gets saved and renamed in our repository as btc-price.json
+                  postprocess: postprocess.js # A postprocessing javascript or typescript file
 	```
 	
 
@@ -165,8 +175,8 @@ But what if you want to process or change the data in some way before it gets ad
 
 5. **Remove the original downloaded data (optional):** If you optionally only wanted to keep the postprocessed-btc-price.json file and not the original data, you can add the following lines to the postprocess script to simply delete it before it gets committed to the repository.
 
-	```javascript
-	import { readJSON, writeJSON, removeFile } from 'https://deno.land/x/flat@0.0.11/mod.ts'
+        ```javascript
+        import { readJSON, writeJSON, removeFile } from 'https://deno.land/x/flat@0.0.14/mod.ts'
 	
 	const filename = Deno.args[0]
 	
