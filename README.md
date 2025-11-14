@@ -1,10 +1,120 @@
 # Flat Data Demo - Bitcoin Price
 
+## Visual Repository Overview
+
+### Git History
+```mermaid
+gitGraph
+  commit id: "Flat data (2024-10-01T00:22)"
+  commit id: "Flat data (2024-11-01T00:22)"
+  commit id: "Flat data (2024-12-01T00:26)"
+  commit id: "Flat data (2025-01-01T00:22)"
+  commit id: "Flat data (2025-02-01T00:21)"
+  commit id: "HEAD(work): Harden Binance postprocess & diagrams"
+```
+
+### State Diagram
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> ScheduledRun: Cron trigger or manual dispatch
+  ScheduledRun --> FetchingBinance: Flat downloads BTCUSDT price
+  FetchingBinance --> PostProcessing: Save btc-price.json
+  PostProcessing --> CommitUpdate: Valid symbol & price
+  PostProcessing --> Failure: Invalid payload / API restriction
+  Failure --> Idle
+  CommitUpdate --> Idle
+```
+
+### Sequence Diagram
+```mermaid
+sequenceDiagram
+  actor User
+  participant GitHubUI as GitHub UI
+  participant Workflow as Flat Workflow
+  participant Binance as Binance API
+  participant Script as postprocess.js
+  participant Repo as Repository
+
+  User->>GitHubUI: Dispatch workflow / edit files
+  GitHubUI->>Workflow: Schedule run on runner
+  Workflow->>Binance: GET /api/v3/ticker/price?symbol=BTCUSDT
+  Binance-->>Workflow: JSON payload (price or error)
+  Workflow->>Script: Invoke postprocess.js with btc-price.json
+  Script-->>Workflow: Validated & normalized record
+  Workflow->>Repo: Commit btc-price.json & btc-price-postprocessed.json
+  Repo-->>User: Updated price data available
+```
+
+### Architecture Diagram
+```mermaid
+graph TD
+  subgraph GitHub Actions Runner
+    A[Flat workflow]
+    B[postprocess.js]
+  end
+  subgraph External API
+    C[Binance BTCUSDT ticker]
+  end
+  subgraph Repository
+    D[btc-price.json]
+    E[btc-price-postprocessed.json]
+  end
+  A -->|HTTP request| C
+  A -->|Store raw payload| D
+  A -->|Invoke| B
+  D -->|Provide price data| B
+  B -->|Write processed record| E
+  A -->|Commit artifacts| D
+  A -->|Commit artifacts| E
+```
+
+### Decision Tree
+```mermaid
+flowchart TD
+  Start([Start postprocess.js])
+  CheckPayload{Payload contains symbol & price?}
+  CheckRestriction{API returned restriction message?}
+  ParsePrice{Price parses to finite number?}
+  Success[[Write btc-price-postprocessed.json]]
+  Fail[[Throw error and fail workflow]]
+
+  Start --> CheckPayload
+  CheckPayload -- No --> Fail
+  CheckPayload -- Yes --> CheckRestriction
+  CheckRestriction -- Yes --> Fail
+  CheckRestriction -- No --> ParsePrice
+  ParsePrice -- No --> Fail
+  ParsePrice -- Yes --> Success
+```
+
+### Swimlane Diagram
+```mermaid
+flowchart LR
+  subgraph User
+    U1[Trigger workflow]
+    U2[Review committed data]
+  end
+  subgraph Frontend
+    F1[GitHub UI schedules Flat run]
+  end
+  subgraph Backend
+    B1[GitHub Actions runner executes Flat]
+    B2[Fetch Binance BTCUSDT ticker]
+    B3[Run postprocess.js validation]
+    B4[Commit JSON artifacts]
+  end
+
+  U1 --> F1 --> B1 --> B2 --> B3 --> B4 --> U2
+```
+
 This demo is part of a larger Flat Data project created by [GitHub OCTO](https://octo.github.com/). Read more about the project [here](https://octo.github.com/projects/flat-data).
 
 ## What this demo does
 
 This repository uses a [Flat Data Action](https://github.com/githubocto/flat) to fetch the current price of Bitcoin [from this link](https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT) and downloads that data to `btc-price.json` and a processed version of the data to `btc-price-postprocessed.json`. Both files are updated every 5 minutes if there are changes.
+
+> **Note:** Binance may return a restricted location message (`code` + `msg`). The workflow surfaces this error so you can adjust network settings or choose a different endpoint if required.
 
 <img src="https://raw.githubusercontent.com/githubocto/flat-demo-bitcoin-price/readme-assets/assets/diagram2.png" alt="diagram" width="400"/>
 

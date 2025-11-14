@@ -13,6 +13,11 @@ if (typeof json !== 'object' || json === null) {
   throw new Error('Unexpected Binance ticker response: missing object payload')
 }
 
+if ('code' in json && 'msg' in json && typeof json.msg === 'string') {
+  const code = typeof json.code === 'number' || typeof json.code === 'string' ? json.code : 'unknown'
+  throw new Error(`Binance API responded with an error (${code}): ${json.msg}`)
+}
+
 const { symbol, price } = json
 const parsedPrice = Number(price)
 
