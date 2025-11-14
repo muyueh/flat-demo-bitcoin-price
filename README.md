@@ -1,10 +1,120 @@
-# Flat Data Demo - Bitcoin Price
+# Flat Data Demo - Taipei Weather
+
+## Visual Repository Overview
+
+### Git History
+```mermaid
+gitGraph
+  commit id: "Initial Flat setup"
+  commit id: "Automated Coindesk snapshots"
+  branch work
+  checkout work
+  commit id: "Improve Binance workflow documentation and validation"
+  commit id: "Switch workflow to Taipei weather forecast"
+```
+
+### State Diagram
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> ScheduledRun: Cron trigger or manual dispatch
+  ScheduledRun --> FetchingWeather: Flat downloads Taipei forecast
+  FetchingWeather --> PostProcessing: Save taipei-weather.json
+  PostProcessing --> CommitUpdate: Valid hourly samples
+  PostProcessing --> Failure: Missing data / schema mismatch
+  Failure --> Idle
+  CommitUpdate --> Idle
+```
+
+### Sequence Diagram
+```mermaid
+sequenceDiagram
+  actor User
+  participant GitHubUI as GitHub UI
+  participant Workflow as Flat Workflow
+  participant OpenMeteo as Open-Meteo API
+  participant Script as postprocess.js
+  participant Repo as Repository
+
+  User->>GitHubUI: Dispatch workflow / edit files
+  GitHubUI->>Workflow: Schedule run on runner
+  Workflow->>OpenMeteo: GET /v1/forecast?latitude=25.04&longitude=121.56&hourly=temperature_2m
+  OpenMeteo-->>Workflow: Hourly temperature payload
+  Workflow->>Script: Invoke postprocess.js with taipei-weather.json
+  Script-->>Workflow: Validated & summarized forecast
+  Workflow->>Repo: Commit taipei-weather.json & taipei-weather-postprocessed.json
+  Repo-->>User: Updated Taipei forecast available
+```
+
+### Architecture Diagram
+```mermaid
+graph TD
+  subgraph GitHub Actions Runner
+    A[Flat workflow]
+    B[postprocess.js]
+  end
+  subgraph External API
+    C[Open-Meteo Taipei forecast]
+  end
+  subgraph Repository
+    D[taipei-weather.json]
+    E[taipei-weather-postprocessed.json]
+  end
+  A -->|HTTP request| C
+  A -->|Store raw payload| D
+  A -->|Invoke| B
+  D -->|Provide hourly data| B
+  B -->|Write processed record| E
+  A -->|Commit artifacts| D
+  A -->|Commit artifacts| E
+```
+
+### Decision Tree
+```mermaid
+flowchart TD
+  Start([Start postprocess.js])
+  CheckPayload{Payload includes hourly arrays?}
+  ValidateCounts{Time & temperature lengths align?}
+  ValidateValues{Entries contain valid timestamps & °C?}
+  Success[[Write taipei-weather-postprocessed.json]]
+  Fail[[Throw error and fail workflow]]
+
+  Start --> CheckPayload
+  CheckPayload -- No --> Fail
+  CheckPayload -- Yes --> ValidateCounts
+  ValidateCounts -- No --> Fail
+  ValidateCounts -- Yes --> ValidateValues
+  ValidateValues -- No --> Fail
+  ValidateValues -- Yes --> Success
+```
+
+### Swimlane Diagram
+```mermaid
+flowchart LR
+  subgraph User
+    U1[Trigger workflow]
+    U2[Review committed data]
+  end
+  subgraph Frontend
+    F1[GitHub UI schedules Flat run]
+  end
+  subgraph Backend
+    B1[GitHub Actions runner executes Flat]
+    B2[Fetch Open-Meteo Taipei forecast]
+    B3[Run postprocess.js validation]
+    B4[Commit JSON artifacts]
+  end
+
+  U1 --> F1 --> B1 --> B2 --> B3 --> B4 --> U2
+```
 
 This demo is part of a larger Flat Data project created by [GitHub OCTO](https://octo.github.com/). Read more about the project [here](https://octo.github.com/projects/flat-data).
 
 ## What this demo does
 
-This repository uses a [Flat Data Action](https://github.com/githubocto/flat) to fetch the current price of Bitcoin [from this link](https://api.coindesk.com/v2/bpi/currentprice.json) and downloads that data to `btc-price.json` and a filtered version of the data to `btc-price-postprocessed.json`. Both files are updated every 5 minutes if there are changes. 
+This repository uses a [Flat Data Action](https://github.com/githubocto/flat) to fetch the hourly 2 m air temperature forecast for Taipei from [Open-Meteo](https://api.open-meteo.com/v1/forecast?latitude=25.04&longitude=121.56&hourly=temperature_2m). The raw payload is committed to `taipei-weather.json`, and a summarized 24-hour slice is written to `taipei-weather-postprocessed.json`. Both files are updated every 5 minutes when the forecast changes.
+
+> **Note:** Open-Meteo is a free, unauthenticated API. You can adjust the coordinates or parameters in `.github/workflows/flat.yml` to target a different city or weather variable.
 
 <img src="https://raw.githubusercontent.com/githubocto/flat-demo-bitcoin-price/readme-assets/assets/diagram2.png" alt="diagram" width="400"/>
 
@@ -54,11 +164,11 @@ This is a super simple example of how to use Flat Data using the Github GUI.
 	        with:
               deno-version: v1.x
 	      # The third step is a Flat Action step. We fetch the data in the http_url and save it as downloaded_filename
-	      - name: Fetch data 
-	        uses: githubocto/flat@v3
-	        with:
-	          http_url: https://api.coindesk.com/v2/bpi/currentprice.json # The data to fetch every 5 minutes
-	          downloaded_filename: btc-price.json # The http_url gets saved and renamed in our repository as btc-price.json
+              - name: Fetch data
+                uses: githubocto/flat@v3
+                with:
+                  http_url: https://api.open-meteo.com/v1/forecast?latitude=25.04&longitude=121.56&hourly=temperature_2m # The data to fetch every 5 minutes
+                  downloaded_filename: taipei-weather.json # The http_url gets saved and renamed in our repository as taipei-weather.json
 	```
 	
 	Let’s discuss what’s happening in a few of these lines of code:
@@ -80,11 +190,11 @@ This is a super simple example of how to use Flat Data using the Github GUI.
 	
 	c. Finally, we have a section for the Flat Action itself. The action takes at minimum two parameters. The `http_url` parameter specifies what endpoint or data we want the Action to download. The `downloaded_filename` specifies what to rename the downloaded data once we commit it to our repo.
 	
-	```yaml
-	with:
-	    http_url: https://api.coindesk.com/v2/bpi/currentprice.json
-	    downloaded_filename: btc-price.json
-	```
+        ```yaml
+        with:
+            http_url: https://api.open-meteo.com/v1/forecast?latitude=25.04&longitude=121.56&hourly=temperature_2m
+            downloaded_filename: taipei-weather.json
+        ```
 
 
 4. **Commit the flat.yaml file:** Once you commit the flat.yaml file to your folder, you will have officially completed writing your first Github Action! GitHub Actions is a service that lets us automate all kinds of workflows in a repository by writing instructions and scripts in a YAML file. In this example our action uses another action itself, the Flat Action.
@@ -92,7 +202,7 @@ This is a super simple example of how to use Flat Data using the Github GUI.
 
 #### Running the Flat Action
 
-1. **Launch a GitHub Action workflow:** Without doing anything, our Action will run every 5 minutes and fetch any new Bitcoin price data. For the sake of this tutorial, we’ll also trigger it manually so you can see the result instantly. 
+1. **Launch a GitHub Action workflow:** Without doing anything, our Action will run every 5 minutes and fetch any new Taipei weather forecast data. For the sake of this tutorial, we’ll also trigger it manually so you can see the result instantly.
 
     Navigate to the “Actions” tab, click on the “Flat” workflow on the left hand column, click on “Run Workflow” dropdown and then button. 
 
@@ -100,7 +210,7 @@ This is a super simple example of how to use Flat Data using the Github GUI.
 
     ![](https://raw.githubusercontent.com/githubocto/flat-demo-bitcoin-price/readme-assets/assets/4.action.png)
 
-2. **Check for the btc-price.json file:** After a few seconds you should see the btc-price.json file show up in your repository. It’s the same data as was in the original endpoint! 
+2. **Check for the taipei-weather.json file:** After a few seconds you should see the taipei-weather.json file show up in your repository. It’s the same data as was in the original endpoint! 
 
     ![](https://raw.githubusercontent.com/githubocto/flat-demo-bitcoin-price/readme-assets/assets/5.jsonfile.png)
 
@@ -120,59 +230,105 @@ But what if you want to process or change the data in some way before it gets ad
 
     ![](https://raw.githubusercontent.com/githubocto/flat-demo-bitcoin-price/readme-assets/assets/7.postprocess.png)
 
-2. **Add code to the postprocess script:** The following code written in Javascript and using Deno (more on this in a bit) fetches a particular key inside of the JSON data that represents the Bitcoin price in USD. It saves just this data point into a new JSON file.
+2. **Add code to the postprocess script:** The following code written in Javascript and using Deno (more on this in a bit) validates the Open-Meteo response and keeps the first 24 hourly temperatures in a compact summary file.
 
 	```javascript
-	// This can be a typescript file as well
-	
-	// Helper library written for useful postprocessing tasks with Flat Data
-	// Has helper functions for manipulating csv, json, excel, zip, and image files
-	import { readJSON, writeJSON } from 'https://deno.land/x/flat@0.0.11/mod.ts' 
-	
-	// Step 1: Read the downloaded_filename JSON
-	const filename = Deno.args[0] // Same name as downloaded_filename `const filename = 'btc-price.json';`
-	const json = await readJSON(filename)
-	console.log(json)
-	
-	// Step 2: Filter specific data we want to keep and write to a new JSON file
-	const currencyRates = Object.values(json.bpi); // convert property values into an array
-	const filteredCurrencyRates = currencyRates.map(rate => ({ 
-	    currency: rate.description,
-	    bitcoinRate: rate.rate
-	}));
-	
-	// Step 3. Write a new JSON file with our filtered data
-	const newFilename = `btc-price-postprocessed.json` // name of a new file to be saved
-	await writeJSON(newFilename, filteredCurrencyRates) // create a new JSON file with just the Bitcoin price
-	console.log("Wrote a post process file")
-	```
+        // This can be a typescript file as well
 
-3. **Add a postprocess parameter to flat.yaml:** Go back to the flat.yaml file and click on the pencil icon to edit it. Add the `postprocess` line below downloaded_filename. This tells the Flat Action that we want to pass the downloaded file through a script that will process it and do additional work.
+        // Helper library written for useful postprocessing tasks with Flat Data
+        // Has helper functions for manipulating csv, json, excel, zip, and image files
+        import { readJSON, writeJSON } from 'https://deno.land/x/flat@0.0.14/mod.ts'
 
-	```yaml
-	- name: Fetch data 
-	        uses: githubocto/flat@v3
-	        with:
-	          http_url: https://api.coindesk.com/v2/bpi/currentprice.json # The data to fetch every 5 minutes
-	          downloaded_filename: btc-price.json # The http_url gets saved and renamed in our repository as btc-price.json
-	          postprocess: postprocess.js # A postprocessing javascript or typescript file
-	```
+        // Step 1: Read the downloaded_filename JSON
+        const filename = Deno.args[0] // Same name as downloaded_filename
+        const json = await readJSON(filename)
+        console.log(json)
+
+        if (typeof json !== 'object' || json === null) {
+          throw new Error('Unexpected Open-Meteo response: missing object payload')
+        }
+
+        const { latitude, longitude, timezone, hourly, hourly_units: hourlyUnits } = json
+
+        if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+          throw new Error('Unexpected Open-Meteo response: missing coordinates')
+        }
+
+        if (!hourly || typeof hourly !== 'object') {
+          throw new Error('Unexpected Open-Meteo response: missing hourly forecast')
+        }
+
+        const times = Array.isArray(hourly.time) ? hourly.time : []
+        const temperatures = Array.isArray(hourly.temperature_2m) ? hourly.temperature_2m : []
+
+        if (!times.length || !temperatures.length) {
+          throw new Error('Unexpected Open-Meteo response: hourly arrays are empty')
+        }
+
+        const forecastLength = Math.min(times.length, temperatures.length, 24)
+
+        if (forecastLength === 0) {
+          throw new Error('Unexpected Open-Meteo response: no overlapping hourly entries')
+        }
+
+        const forecast = []
+        for (let index = 0; index < forecastLength; index += 1) {
+          const time = times[index]
+          const temperature = temperatures[index]
+
+          if (typeof time !== 'string' || !time.length) {
+            throw new Error(`Unexpected Open-Meteo response: missing time at index ${index}`)
+          }
+
+          if (typeof temperature !== 'number' || !Number.isFinite(temperature)) {
+            throw new Error(`Unexpected Open-Meteo response: missing temperature at index ${index}`)
+          }
+
+          forecast.push({ time, temperatureC: temperature })
+        }
+
+        const processed = {
+          location: 'Taipei, Taiwan',
+          coordinates: { latitude, longitude },
+          timezone: typeof timezone === 'string' && timezone.length ? timezone : 'UTC',
+          hourlyUnit: typeof hourlyUnits === 'object' && hourlyUnits !== null && typeof hourlyUnits.temperature_2m === 'string'
+            ? hourlyUnits.temperature_2m
+            : '°C',
+          forecast,
+          fetchedAt: new Date().toISOString(),
+          source: 'https://api.open-meteo.com/v1/forecast?latitude=25.04&longitude=121.56&hourly=temperature_2m'
+        }
+
+        // Step 3. Write a new JSON file with our filtered data
+        const newFilename = `taipei-weather-postprocessed.json` // name of a new file to be saved
+        await writeJSON(newFilename, processed) // create a new JSON file with the processed forecast
+        console.log('Wrote a post process file')
+        ```
+
+        ```yaml
+        - name: Fetch data
+                uses: githubocto/flat@v3
+                with:
+                  http_url: https://api.open-meteo.com/v1/forecast?latitude=25.04&longitude=121.56&hourly=temperature_2m # The data to fetch every 5 minutes
+                  downloaded_filename: taipei-weather.json # The http_url gets saved and renamed in our repository as taipei-weather.json
+                  postprocess: postprocess.js # A postprocessing javascript or typescript file
+        ```
 	
 
-4. **Check the new postprocessed-btc-price.json file:** In the repository you should now see a new file with just the Bitcoin price in USD. 
+4. **Check the new postprocessed-taipei-weather.json file:** In the repository you should now see a new file containing the first 24 hourly temperature readings for Taipei.
 
     ![](https://raw.githubusercontent.com/githubocto/flat-demo-bitcoin-price/readme-assets/assets/8.postprocessfile.png)
 
-5. **Remove the original downloaded data (optional):** If you optionally only wanted to keep the postprocessed-btc-price.json file and not the original data, you can add the following lines to the postprocess script to simply delete it before it gets committed to the repository.
+5. **Remove the original downloaded data (optional):** If you optionally only wanted to keep the postprocessed-taipei-weather.json file and not the original data, you can add the following lines to the postprocess script to simply delete it before it gets committed to the repository.
 
-	```javascript
-	import { readJSON, writeJSON, removeFile } from 'https://deno.land/x/flat@0.0.11/mod.ts'
+        ```javascript
+        import { readJSON, writeJSON, removeFile } from 'https://deno.land/x/flat@0.0.14/mod.ts'
 	
 	const filename = Deno.args[0]
 	
 	…
 	
-	await removeFile(filename) // or await removeFile(‘btc-price.json’)
+	await removeFile(filename) // or await removeFile(‘taipei-weather.json’)
 	```
 	
 	
@@ -196,7 +352,7 @@ How to use Flat Viewer:
 
 2. **Go to the Flat Viewer URL for your repository:** all you need to do to go to the Flat Viewer is change the domain of your repository from “github.com” to “flatgithub.com”. In this example instead of using the URL: [https://github.com/githubocto/flat-demo-bitcoin-price](https://github.com/githubocto/flat-demo-bitcoin-price) we want to navigate to [https://flatgithub.com/githubocto/flat-demo-bitcoin-price](https://flatgithub.com/githubocto/flat-demo-bitcoin-price)
 
-3. **Select ‘btc-price-postprocessed.json’ from the dropdown:** you should be able to see the json file data in a neat tabular format. This is a super simple file, but we provide more useful filtering and formatting features for more complex files. 
+3. **Select ‘taipei-weather-postprocessed.json’ from the dropdown:** you should be able to see the json file data in a neat tabular format. This is a super simple file, but we provide more useful filtering and formatting features for more complex files. 
 
     ![](https://raw.githubusercontent.com/githubocto/flat-demo-bitcoin-price/readme-assets/assets/9.flatviewer.png)
 

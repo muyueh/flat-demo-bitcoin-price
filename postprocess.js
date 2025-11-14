@@ -2,24 +2,69 @@
 
 // Helper library written for useful postprocessing tasks with Flat Data
 // Has helper functions for manipulating csv, txt, json, excel, zip, and image files
-import { readJSON, writeJSON, removeFile } from 'https://deno.land/x/flat@0.0.14/mod.ts' 
+import { readJSON, writeJSON } from 'https://deno.land/x/flat@0.0.14/mod.ts'
 
 // Step 1: Read the downloaded_filename JSON
-const filename = Deno.args[0] // Same name as downloaded_filename `const filename = 'btc-price.json';`
+const filename = Deno.args[0] // Same name as downloaded_filename
 const json = await readJSON(filename)
 console.log(json)
 
-// Step 2: Filter specific data we want to keep and write to a new JSON file
-const currencyRates = Object.values(json.bpi); // convert property values into an array
-const filteredCurrencyRates = currencyRates.map(rate => ({ 
-    currency: rate.description,
-    bitcoinRate: rate.rate
-}));
+if (typeof json !== 'object' || json === null) {
+  throw new Error('Unexpected Open-Meteo response: missing object payload')
+}
+
+const { latitude, longitude, timezone, hourly, hourly_units: hourlyUnits } = json
+
+if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+  throw new Error('Unexpected Open-Meteo response: missing coordinates')
+}
+
+if (!hourly || typeof hourly !== 'object') {
+  throw new Error('Unexpected Open-Meteo response: missing hourly forecast')
+}
+
+const times = Array.isArray(hourly.time) ? hourly.time : []
+const temperatures = Array.isArray(hourly.temperature_2m) ? hourly.temperature_2m : []
+
+if (!times.length || !temperatures.length) {
+  throw new Error('Unexpected Open-Meteo response: hourly arrays are empty')
+}
+
+const forecastLength = Math.min(times.length, temperatures.length, 24)
+
+if (forecastLength === 0) {
+  throw new Error('Unexpected Open-Meteo response: no overlapping hourly entries')
+}
+
+const forecast = []
+for (let index = 0; index < forecastLength; index += 1) {
+  const time = times[index]
+  const temperature = temperatures[index]
+
+  if (typeof time !== 'string' || !time.length) {
+    throw new Error(`Unexpected Open-Meteo response: missing time at index ${index}`)
+  }
+
+  if (typeof temperature !== 'number' || !Number.isFinite(temperature)) {
+    throw new Error(`Unexpected Open-Meteo response: missing temperature at index ${index}`)
+  }
+
+  forecast.push({ time, temperatureC: temperature })
+}
+
+const processed = {
+  location: 'Taipei, Taiwan',
+  coordinates: { latitude, longitude },
+  timezone: typeof timezone === 'string' && timezone.length ? timezone : 'UTC',
+  hourlyUnit: typeof hourlyUnits === 'object' && hourlyUnits !== null && typeof hourlyUnits.temperature_2m === 'string'
+    ? hourlyUnits.temperature_2m
+    : '°C',
+  forecast,
+  fetchedAt: new Date().toISOString(),
+  source: 'https://api.open-meteo.com/v1/forecast?latitude=25.04&longitude=121.56&hourly=temperature_2m'
+}
 
 // Step 3. Write a new JSON file with our filtered data
-const newFilename = `btc-price-postprocessed.json` // name of a new file to be saved
-await writeJSON(newFilename, filteredCurrencyRates) // create a new JSON file with just the Bitcoin price
-console.log("Wrote a post process file")
-
-// Optionally delete the original file
-// await removeFile('./btc-price.json') // equivalent to removeFile('btc-price.json')
+const newFilename = 'taipei-weather-postprocessed.json' // name of a new file to be saved
+await writeJSON(newFilename, processed) // create a new JSON file with the processed forecast
+console.log('Wrote a post process file')
